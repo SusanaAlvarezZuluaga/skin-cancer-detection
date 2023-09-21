@@ -1,16 +1,13 @@
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
 
 import torch
-from torchmetrics import Accuracy
-from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import MNIST
 from torchvision import transforms
-from typing import Optional, Any
+from torch.utils.data import DataLoader, random_split
 
+from typing import Optional
 
-class SkinCancerDataset(pl.LightningDataModule):
-
+class MNISTDataModule(pl.LightningDataModule):
     def __init__(self, data_path: str = './'):
         super().__init__()
         self.data_path = data_path
@@ -18,10 +15,10 @@ class SkinCancerDataset(pl.LightningDataModule):
             [transforms.ToTensor()]
         )
 
-    def prepare_data(self) -> None:
+    def prepare_data(self) -> None: #data is loaded
         MNIST(root=self.data_path, download=True)
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: Optional[str] = None) -> None: #data is prepared
         mnist_all = MNIST(
             root=self.data_path,
             train=True,
@@ -48,4 +45,3 @@ class SkinCancerDataset(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.train, batch_size=64, num_workers=4)
-

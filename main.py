@@ -1,23 +1,17 @@
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import ModelCheckpoint
+
+from argparse import ArgumentParser
 
 import wandb
 
-import torch
-from torch import nn
-from torchmetrics import Accuracy
-from torch.utils.data import DataLoader, random_split
-from torchvision.datasets import MNIST
-from torchvision import transforms
-from pytorch_lightning.callbacks import ModelCheckpoint
-from argparse import ArgumentParser
-from typing import Optional, Any
-
-from dataset import SkinCancerDataset
+from datasetv2 import SkinCancerDataModule
+from dataset import MNISTDataModule
 from model import CNN
 
 def main(args):
-    dataset = SkinCancerDataset()
+    datamodule = SkinCancerDataModule()
     net = CNN()
     callbacks = [ModelCheckpoint(save_top_k=1, mode='max', monitor="valid_acc")]  # save top 1 model
     
@@ -30,8 +24,8 @@ def main(args):
                           devices=1,
                           logger = wandb_logger
                         )
-    trainer.fit(model=net, datamodule=dataset)
-    trainer.test(model=net, datamodule=dataset, ckpt_path='best')
+    trainer.fit(model=net, datamodule=datamodule)
+    trainer.test(model=net, datamodule=datamodule, ckpt_path='best')
 
     # [optional] finish the wandb run, necessary in notebooks
     wandb.finish()
