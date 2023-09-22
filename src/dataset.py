@@ -1,29 +1,24 @@
-import pytorch_lightning as pl
-
-import torch
-from torchvision.datasets import MNIST
-from torchvision import transforms
-from torch.utils.data import DataLoader, random_split
-
 from typing import Optional
 
+import pytorch_lightning as pl
+import torch
+from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+
 class MNISTDataModule(pl.LightningDataModule):
-    def __init__(self, data_path: str = './'):
+    def __init__(self, data_path: str = "./"):
         super().__init__()
         self.data_path = data_path
-        self.transform = transforms.Compose(
-            [transforms.ToTensor()]
-        )
+        self.transform = transforms.Compose([transforms.ToTensor()])
 
-    def prepare_data(self) -> None: #data is loaded
+    def prepare_data(self) -> None:  # data is loaded
         MNIST(root=self.data_path, download=True)
 
-    def setup(self, stage: Optional[str] = None) -> None: #data is prepared
+    def setup(self, stage: Optional[str] = None) -> None:  # data is prepared
         mnist_all = MNIST(
-            root=self.data_path,
-            train=True,
-            transform=self.transform,
-            download=False
+            root=self.data_path, train=True, transform=self.transform, download=False
         )
 
         self.train, self.val = random_split(
@@ -31,10 +26,7 @@ class MNISTDataModule(pl.LightningDataModule):
         )
 
         self.test = MNIST(
-            root=self.data_path,
-            train=False,
-            transform=self.transform,
-            download=False
+            root=self.data_path, train=False, transform=self.transform, download=False
         )
 
     def train_dataloader(self):

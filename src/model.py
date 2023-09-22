@@ -1,58 +1,57 @@
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-
 import torch
+from pytorch_lightning.loggers import WandbLogger
 from torch import nn
 from torchmetrics import Accuracy
 
-#MNIST
-#IN_CHANNELS = 1
-#NUM_CLASSES = 10
+# MNIST
+# IN_CHANNELS = 1
+# NUM_CLASSES = 10
 
-#Skin cancer
+# Skin cancer
 IN_CHANNELS = 3
 NUM_CLASSES = 7
 
-class CNN(pl.LightningModule):
 
+class CNN(pl.LightningModule):
     def __init__(
-            self,
-            cnn_out_channels=None,
-            n_lables: int = NUM_CLASSES ## number of labels in de dataset (10 numbers)
+        self,
+        cnn_out_channels=None,
+        n_lables: int = NUM_CLASSES,  ## number of labels in de dataset (10 numbers)
     ):
         super().__init__()
 
         if cnn_out_channels is None:
             cnn_out_channels = [16, 32, 64]
-        self.train_acc = Accuracy(task="multiclass", num_classes= NUM_CLASSES)
-        self.valid_acc = Accuracy(task="multiclass", num_classes= NUM_CLASSES)
-        self.test_acc = Accuracy(task="multiclass", num_classes= NUM_CLASSES)
+        self.train_acc = Accuracy(task="multiclass", num_classes=NUM_CLASSES)
+        self.valid_acc = Accuracy(task="multiclass", num_classes=NUM_CLASSES)
+        self.test_acc = Accuracy(task="multiclass", num_classes=NUM_CLASSES)
 
-        in_channels = IN_CHANNELS ## the input will have one color chanel (the dataset is black and white )
+        in_channels = IN_CHANNELS  ## the input will have one color chanel (the dataset is black and white )
         # if it were colored images(RGB) it should be set up to three
         cnn_block = list()
         for out_channel in cnn_out_channels:
-            conv_layer =  nn.Conv2d(
+            conv_layer = nn.Conv2d(
                 in_channels=in_channels,
                 out_channels=out_channel,
                 kernel_size=3,
                 stride=1,
-                padding=1
+                padding=1,
             )
             cnn_block.append(conv_layer)
-            cnn_block.append(nn.ReLU())  
-            cnn_block.append(nn.MaxPool2d((2, 2))) # reduce dimensionality- we are taking the maximum of each channel
-            in_channels = out_channel #for the next iteration
+            cnn_block.append(nn.ReLU())
+            cnn_block.append(
+                nn.MaxPool2d((2, 2))
+            )  # reduce dimensionality- we are taking the maximum of each channel
+            in_channels = out_channel  # for the next iteration
 
-        self.cnn_block = nn.Sequential(*cnn_block) ## output = emmbeding
-        self.classifier = nn.Sequential( # does the objetive ej: classify,
-            nn.Flatten(),
-            nn.Linear(cnn_out_channels[-1] * 3 * 3, n_lables) #n lables = 10
+        self.cnn_block = nn.Sequential(*cnn_block)  ## output = emmbeding
+        self.classifier = nn.Sequential(  # does the objetive ej: classify,
+            nn.Flatten(), nn.Linear(268800, n_lables)  # n lables = 10
         )
 
         # save hyper-parameters to self.hparamsm auto-logged by wandb
         self.save_hyperparameters()
-
 
     def forward(self, x) -> torch.Tensor:
         x = self.cnn_block(x)
@@ -75,8 +74,8 @@ class CNN(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        logits = self(x) ## output of the 
-        loss = nn.functional.cross_entropy(logits, y)  ## softmax 
+        logits = self(x)  ## output of the
+        loss = nn.functional.cross_entropy(logits, y)  ## softmax
         preds = torch.argmax(logits, dim=1)
         self.valid_acc.update(preds, y)
         self.log("valid_loss", loss, prog_bar=True)
@@ -97,5 +96,5 @@ class CNN(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, momentum=self.momentum)
         return optimizer
