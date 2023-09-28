@@ -4,6 +4,7 @@
 /MNIST
 /wandb
 /cnn-mnist-number
+skin_cancer_dataset_trial/
 __pycache__/
 /env
 

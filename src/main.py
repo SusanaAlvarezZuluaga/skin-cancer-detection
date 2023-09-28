@@ -1,26 +1,47 @@
 from argparse import ArgumentParser
-
+import os
 import pytorch_lightning as pl
 import torch
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from dataset import MNISTDataModule
-from datasetv2 import SkinCancerDataModule
+from dataset import SkinCancerDataModule
 from model import CNN
 
 
+IN_CHANNELS = 3   # colored images
+NUM_CLASSES = 7
+
+IMG_DIR = "../data/HAM10000_images_part_1/"
+LABELS_DIR = "./data/HAM10000_metadata.csv"
+
+LABELS = {"akiec": 0, "bcc": 1, "bkl": 2, "df": 3, "mel": 4, "nv": 5, "vasc": 6}
+
 def main(args):
-    datamodule = SkinCancerDataModule()
-    net = CNN()
+
+    os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'
+    pl.seed_everything(42)
+
+    datamodule = SkinCancerDataModule(
+        batch_size = args.batch_size,
+        num_workers = args.num_workers,
+        img_dir = IMG_DIR,
+        labels_dir = LABELS_DIR
+    )
+
+    net = CNN(
+        lr = args.lr,
+        momentum = args.lr,
+        n_lables = NUM_CLASSES,
+        in_channels = IN_CHANNELS
+    )
 
     callbacks = [
         ModelCheckpoint(save_top_k=1, mode="max", monitor="valid_acc")
-    ]  # save top 1 model
+    ]
 
-    # initialise the wandb logger and name your wandb project
-    wandb_logger = WandbLogger(project="cnn-mnist-number")
+    wandb_logger = WandbLogger(project="skin_cancer_dataset_trial")
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -38,7 +59,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--epochs", default=1, type=int)
+    parser.add_argument("--epochs", default = 1, type = int)
+    parser.add_argument("--num_workers", default = 4, type = int)
+
+    parser.add_argument("--lr", default = 0.001, type = float)
+    parser.add_argument("--batch_size", default = 64, type = float)
+    parser.add_argument("--momentum", default = 0, type = float)
     args = parser.parse_args()
 
     main(args)
