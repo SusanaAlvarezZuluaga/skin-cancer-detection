@@ -38,15 +38,26 @@ def main(args):
 
     net = CNN(
         lr=args.lr,
-        momentum=args.lr,
+        momentum=args.momentum,
+        params_freeze_fraction=args.params_freeze_fraction,
         n_lables=NUM_CLASSES,
         in_channels=IN_CHANNELS,
         class_weights=class_weights,
     )
 
-    callbacks = [ModelCheckpoint(save_top_k=1, mode="max", monitor="valid_acc")]
+    callbacks = [
+        ModelCheckpoint(
+            filename="{run_id}-{epoch}",
+            every_n_epochs=1,
+            mode="max",
+            monitor="valid_acc",
+            save_last=True,
+        )
+    ]
 
     wandb_logger = WandbLogger(project="skin_cancer_dataset_trial")
+
+    wandb.init(project="skin_cancer_dataset_trial", config=vars(args))
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -56,7 +67,11 @@ def main(args):
         logger=wandb_logger,
         log_every_n_steps=1,
     )
-    trainer.fit(model=net, datamodule=datamodule)
+    trainer.fit(
+        model=net,
+        datamodule=datamodule,
+        ckpt_path=args.ckpt_path,
+    )
     trainer.test(model=net, datamodule=datamodule, ckpt_path="best")
 
     # [optional] finish the wandb run, necessary in notebooks
@@ -67,10 +82,12 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--epochs", default=1, type=int)
     parser.add_argument("--num_workers", default=4, type=int)
-
     parser.add_argument("--lr", default=0.01, type=float)
     parser.add_argument("--batch_size", default=64, type=float)
-    parser.add_argument("--momentum", default=0.9, type=float)
+    parser.add_argument("--momentum", default=0.7, type=float)
+    parser.add_argument("--ckpt_path", default=None, type=str)
+
+    parser.add_argument("--params_freeze_fraction", default=0, type=float)
     args = parser.parse_args()
 
     main(args)

@@ -2,7 +2,14 @@ import pytorch_lightning as pl
 import torch
 from torch import nn
 from torchmetrics import Accuracy, ConfusionMatrix
-from torchvision.models import alexnet, AlexNet_Weights, resnet18, ResNet18_Weights
+from torchvision.models import (
+    alexnet,
+    AlexNet_Weights,
+    resnet18,
+    ResNet18_Weights,
+    resnet50,
+    ResNet50_Weights,
+)
 from torchmetrics.classification import MulticlassF1Score
 import wandb
 
@@ -15,6 +22,7 @@ class CNN(pl.LightningModule):
         momentum,
         n_lables,
         class_weights,
+        params_freeze_fraction,
         cnn_out_channels=None,
     ):
         super().__init__()
@@ -23,6 +31,7 @@ class CNN(pl.LightningModule):
         self.lr = lr
         self.momentum = momentum
         self.n_labels = n_lables
+        self.params_freeze_fraction = params_freeze_fraction
         self.cnn_out_channels = cnn_out_channels
         self.class_weights = class_weights
 
@@ -88,18 +97,26 @@ class CNN(pl.LightningModule):
         # Combine the feature extractor and SVM classifier
         model = nn.Sequential(feature_extractor, svm_classifier)
 
-        # Freeze the feature extractor layers
-        # for param in feature_extractor.parameters():
-        #     param.requires_grad = False
-
         return model
 
     def load_resnet(self):
         # Load a pre-trained ResNet model from torchvision
-        model = resnet18(ResNet18_Weights.DEFAULT)
+        model = resnet50(ResNet50_Weights.DEFAULT)
 
-        # for param in model.parameters():
-        #     param.requires_grad = False
+        # Calculate the total number of parameters in the model
+        total_params = sum(p.numel() for p in model.parameters())
+
+        # Calculate the number of parameters to freeze (70% of total_params)
+        params_to_freeze = int(self.params_freeze_fraction * total_params)
+
+        if params_to_freeze > 0:
+            # Freeze the first 70% of parameters
+            frozen_params = 0
+            for param in model.parameters():
+                param.requires_grad = False
+                frozen_params += param.numel()
+                if frozen_params >= params_to_freeze:
+                    break
 
         num_ftrs = model.fc.in_features
         model.fc = nn.Linear(num_ftrs, self.n_labels)
