@@ -25,6 +25,7 @@ def main(args):
     os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
     pl.seed_everything(42)
     torch.multiprocessing.set_sharing_strategy("file_system")
+    weighted_sampling = True if args.weighted_sampling == 1 else False
 
     datamodule = SkinCancerDataModule(
         batch_size=args.batch_size,
@@ -32,6 +33,7 @@ def main(args):
         img_dir=IMG_DIR,
         labels_dir=LABELS_DIR,
         labels=LABELS,
+        weighted_sampling=weighted_sampling,
     )
 
     class_weights = datamodule.class_weights
@@ -43,6 +45,7 @@ def main(args):
         n_lables=NUM_CLASSES,
         in_channels=IN_CHANNELS,
         class_weights=class_weights,
+        weighted_sampling=weighted_sampling,
     )
 
     callbacks = [
@@ -86,6 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=64, type=float)
     parser.add_argument("--momentum", default=0.7, type=float)
     parser.add_argument("--ckpt_path", default=None, type=str)
+    parser.add_argument("--weighted_sampling", default=0, type=int)
 
     parser.add_argument("--params_freeze_fraction", default=0, type=float)
     args = parser.parse_args()

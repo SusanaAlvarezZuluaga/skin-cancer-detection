@@ -13,15 +13,12 @@ import torch
 
 
 class SkinCancerDataset(Dataset):
-    def __init__(
-        self, img_anotations, img_dir, labels, transform=None, target_transform=None
-    ):
+    def __init__(self, img_anotations, img_dir, labels, transform=None):
         super(SkinCancerDataset, self).__init__()
         self.img_labels = img_anotations
         self.img_dir = img_dir
         self.transform = transform
         self.labels = labels
-        self.target_transform = target_transform
 
     def __len__(self):
         return len(self.img_labels)
@@ -35,13 +32,13 @@ class SkinCancerDataset(Dataset):
         label = self.labels[self.img_labels.iloc[idx]["dx"]]
         if self.transform:
             image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
         return image, label
 
 
 class SkinCancerDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size, num_workers, img_dir, labels_dir, labels):
+    def __init__(
+        self, batch_size, num_workers, img_dir, labels_dir, labels, weighted_sampling
+    ):
         super().__init__()
 
         # init values
@@ -50,20 +47,66 @@ class SkinCancerDataModule(pl.LightningDataModule):
         self.img_dir = img_dir
         self.labels_dir = labels_dir
         self.labels = labels
-        self.transform = transforms.Compose(
+        self.weighted_sampling = weighted_sampling
+        self.train_transform = transforms.Compose(
             [
                 transforms.ToPILImage(),
                 transforms.Resize((224, 224)),
-                transforms.RandomEqualize(),
                 transforms.RandomRotation((-180, 180)),  # Image rotate
                 transforms.RandomAffine((-180, 180)),  # image translate
                 transforms.ToTensor(),
             ]
         )
 
-        self.class_weights = self.calculate_weights()
+        self.valid_transform = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+            ]
+        )
+
+        self.train_data, self.validation_data, self.test_data = self.get_data_sets()
+
+        weights = self.calculate_weights()
+
+        self.class_weights = torch.tensor(weights, dtype=torch.float32, device="mps")
+
+        self.trainSampler = None
+
+        if self.weighted_sampling == True:
+            class_weights = [weights[label] for label in self.train_data["dx"]]
+            self.trainSampler = torch.utils.data.WeightedRandomSampler(
+                weights=class_weights,
+                num_samples=len(self.train_data),
+                replacement=True,
+            )
 
     def setup(self, stage: str):
+        if stage == "fit":
+            self.train_dataset = SkinCancerDataset(
+                img_anotations=self.train_data,
+                img_dir=self.img_dir,
+                labels=self.labels,
+                transform=self.train_transform,
+            )
+
+            self.valid_dataset = SkinCancerDataset(
+                img_anotations=self.validation_data,
+                img_dir=self.img_dir,
+                labels=self.labels,
+                transform=self.train_transform,
+            )
+
+        if stage == "test":
+            self.test_dataset = SkinCancerDataset(
+                img_anotations=self.test_data,
+                img_dir=self.img_dir,
+                labels=self.labels,
+                transform=self.train_transform,
+            )
+
+    def get_data_sets(self):
         df = pd.read_csv(self.labels_dir)
         test_size = 0.30
         train, test = train_test_split(df, test_size=test_size, stratify=df["dx"])
@@ -73,45 +116,22 @@ class SkinCancerDataModule(pl.LightningDataModule):
             train, test_size=validation_proportion, stratify=train["dx"]
         )
 
-        if stage == "fit":
-            self.train_dataset = SkinCancerDataset(
-                img_anotations=train,
-                img_dir=self.img_dir,
-                labels=self.labels,
-                transform=self.transform,
-            )
-
-            self.valid_dataset = SkinCancerDataset(
-                img_anotations=validation,
-                img_dir=self.img_dir,
-                labels=self.labels,
-                transform=self.transform,
-            )
-
-        if stage == "test":
-            self.test_dataset = SkinCancerDataset(
-                img_anotations=test,
-                img_dir=self.img_dir,
-                labels=self.labels,
-                transform=self.transform,
-            )
+        return train, validation, test
 
     def calculate_weights(self):
-        test_size = 0.30
-        df = pd.read_csv(self.labels_dir)
-        train, test = train_test_split(df, test_size=test_size, stratify=df["dx"])
-
-        proportions = train["dx"].value_counts(normalize=True)
+        proportions = self.train_data["dx"].value_counts(normalize=True)
         weights = proportions[0] / proportions
         weights_ordered = weights[self.labels.keys()]
-        return torch.tensor(weights_ordered, dtype=torch.float32, device="mps")
+
+        return weights_ordered
 
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True,
+            shuffle=True if self.trainSampler is None else False,
+            sampler=self.trainSampler,
         )
 
     def val_dataloader(self):

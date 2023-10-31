@@ -23,6 +23,7 @@ class CNN(pl.LightningModule):
         n_lables,
         class_weights,
         params_freeze_fraction,
+        weighted_sampling,
         cnn_out_channels=None,
     ):
         super().__init__()
@@ -33,7 +34,10 @@ class CNN(pl.LightningModule):
         self.n_labels = n_lables
         self.params_freeze_fraction = params_freeze_fraction
         self.cnn_out_channels = cnn_out_channels
-        self.class_weights = class_weights
+        self.class_weights = None
+
+        if weighted_sampling == False:
+            self.class_weights = class_weights
 
         if self.cnn_out_channels is None:
             self.cnn_out_channels = [16, 32, 64]
@@ -101,7 +105,7 @@ class CNN(pl.LightningModule):
 
     def load_resnet(self):
         # Load a pre-trained ResNet model from torchvision
-        model = resnet50(ResNet50_Weights.DEFAULT)
+        model = resnet18(ResNet18_Weights.DEFAULT)
 
         # Calculate the total number of parameters in the model
         total_params = sum(p.numel() for p in model.parameters())
