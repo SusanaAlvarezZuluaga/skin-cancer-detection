@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 import torch
 from torch import nn
-from torchmetrics import Accuracy, ConfusionMatrix
+from torchmetrics import Accuracy
 from torchvision.models import (
     alexnet,
     AlexNet_Weights,
@@ -58,7 +58,7 @@ class CNN(pl.LightningModule):
         self.valid_f1 = MulticlassF1Score(**multi_class_metric_kwargs)
         self.test_f1 = MulticlassF1Score(**multi_class_metric_kwargs)
 
-        self.test_confusion_matrix = ConfusionMatrix(**regular_metric_kwargs)
+        self.test_outputs = {"y": [], "preds": []}
 
         # self.model = self.load_personal_model()
         self.model = self.load_resnet()
@@ -230,13 +230,16 @@ class CNN(pl.LightningModule):
         """Resets the metrics at the start of every epoch."""
         self.test_acc.reset()
         self.test_f1.reset()
-        self.test_confusion_matrix.reset()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
         loss = nn.functional.cross_entropy(logits, y, self.class_weights)
         preds = torch.argmax(logits, dim=1)
+
+        self.test_outputs["loss"] = loss
+        self.test_outputs["y"].extend(y.cpu().numpy())
+        self.test_outputs["preds"].extend(preds.cpu().numpy())
 
         return {"loss": loss, "preds": preds, "y": y}
 
@@ -245,10 +248,19 @@ class CNN(pl.LightningModule):
         self.test_acc.update(outputs["preds"], outputs["y"])
         self.test_f1.update(outputs["preds"], outputs["y"])
 
-        # Update the confusion matrix
-        self.test_confusion_matrix.update(outputs["preds"], outputs["y"])
-
     def on_test_epoch_end(self):
+        class_names = ["akiec", "bcc", "bkl", "df", "mel", "nv", "vasc"]
+        wandb.log(
+            {
+                "conf_mat": wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=self.test_outputs["y"],
+                    preds=self.test_outputs["preds"],
+                    class_names=class_names,
+                )
+            }
+        )
+
         """Computes metrics at the end of every epoch and logs it."""
         self.log(
             "test_acc",
@@ -271,10 +283,8 @@ class CNN(pl.LightningModule):
                 logger=True,
             )
 
-        print(self.test_confusion_matrix.compute())
-
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(
-            self.parameters(), lr=self.lr, momentum=self.momentum
+            self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=1e-4
         )
         return optimizer

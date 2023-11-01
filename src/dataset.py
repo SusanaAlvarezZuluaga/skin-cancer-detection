@@ -52,8 +52,8 @@ class SkinCancerDataModule(pl.LightningDataModule):
             [
                 transforms.ToPILImage(),
                 transforms.Resize((224, 224)),
-                transforms.RandomRotation((-180, 180)),  # Image rotate
-                transforms.RandomAffine((-180, 180)),  # image translate
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
             ]
         )
@@ -95,7 +95,7 @@ class SkinCancerDataModule(pl.LightningDataModule):
                 img_anotations=self.validation_data,
                 img_dir=self.img_dir,
                 labels=self.labels,
-                transform=self.train_transform,
+                transform=self.valid_transform,
             )
 
         if stage == "test":
@@ -103,7 +103,7 @@ class SkinCancerDataModule(pl.LightningDataModule):
                 img_anotations=self.test_data,
                 img_dir=self.img_dir,
                 labels=self.labels,
-                transform=self.train_transform,
+                transform=self.valid_transform,
             )
 
     def get_data_sets(self):
