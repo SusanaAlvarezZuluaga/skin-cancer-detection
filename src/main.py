@@ -27,6 +27,8 @@ def main(args):
     torch.multiprocessing.set_sharing_strategy("file_system")
     weighted_sampling = True if args.weighted_sampling == 1 else False
 
+    adaptative_loss = True if args.adaptative_loss == 1 else False
+
     datamodule = SkinCancerDataModule(
         batch_size=args.batch_size,
         num_workers=args.num_workers,
@@ -46,6 +48,9 @@ def main(args):
         in_channels=IN_CHANNELS,
         class_weights=class_weights,
         weighted_sampling=weighted_sampling,
+        adaptative_loss=adaptative_loss,
+        weight_decay=args.weight_decay,
+        optimizer=args.optimizer,
     )
 
     callbacks = [
@@ -87,9 +92,13 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", default=4, type=int)
     parser.add_argument("--lr", default=0.01, type=float)
     parser.add_argument("--batch_size", default=64, type=float)
-    parser.add_argument("--momentum", default=0.7, type=float)
+    parser.add_argument("--momentum", default=0.9, type=float)
     parser.add_argument("--ckpt_path", default=None, type=str)
     parser.add_argument("--weighted_sampling", default=0, type=int)
+    parser.add_argument("--adaptative_loss", default=0, type=int)
+    parser.add_argument("--weight_decay", default=1e-2, type=float)
+
+    parser.add_argument("--optimizer", default="SGD", type=str)
 
     parser.add_argument("--params_freeze_fraction", default=0, type=float)
     args = parser.parse_args()

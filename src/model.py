@@ -12,6 +12,8 @@ from torchvision.models import (
 )
 from torchmetrics.classification import MulticlassF1Score
 import wandb
+from torchmetrics.classification import MulticlassConfusionMatrix
+import matplotlib.pyplot as plt
 
 
 class CNN(pl.LightningModule):
@@ -24,6 +26,9 @@ class CNN(pl.LightningModule):
         class_weights,
         params_freeze_fraction,
         weighted_sampling,
+        adaptative_loss,
+        weight_decay,
+        optimizer,
         cnn_out_channels=None,
     ):
         super().__init__()
@@ -35,6 +40,9 @@ class CNN(pl.LightningModule):
         self.params_freeze_fraction = params_freeze_fraction
         self.cnn_out_channels = cnn_out_channels
         self.class_weights = None
+        self.weight_decay = weight_decay
+        self.adaptative_loss = adaptative_loss
+        self.optimizer = optimizer
 
         if weighted_sampling == False:
             self.class_weights = class_weights
@@ -42,21 +50,30 @@ class CNN(pl.LightningModule):
         if self.cnn_out_channels is None:
             self.cnn_out_channels = [16, 32, 64]
 
+        # initialize metrics
+
         regular_metric_kwargs = {
             "task": "multiclass",
             "num_classes": n_lables,
         }
-
-        multi_class_metric_kwargs = {"num_classes": n_lables, "average": None}
-
-        # initialize metrics
         self.train_acc = Accuracy(**regular_metric_kwargs)
         self.valid_acc = Accuracy(**regular_metric_kwargs)
         self.test_acc = Accuracy(**regular_metric_kwargs)
 
+        multi_class_metric_kwargs = {"num_classes": n_lables, "average": None}
         self.train_f1 = MulticlassF1Score(**multi_class_metric_kwargs)
         self.valid_f1 = MulticlassF1Score(**multi_class_metric_kwargs)
         self.test_f1 = MulticlassF1Score(**multi_class_metric_kwargs)
+
+        multi_class_weighted_metric_kwargs = {
+            "num_classes": n_lables,
+            "average": "weighted",
+        }
+        self.train_f1_weighted = MulticlassF1Score(**multi_class_weighted_metric_kwargs)
+        self.valid_f1_weighted = MulticlassF1Score(**multi_class_weighted_metric_kwargs)
+        self.test_f1_weighted = MulticlassF1Score(**multi_class_weighted_metric_kwargs)
+
+        self.confusion_matrix = MulticlassConfusionMatrix(num_classes=self.n_labels)
 
         self.test_outputs = {"y": [], "preds": []}
 
@@ -132,13 +149,20 @@ class CNN(pl.LightningModule):
     def on_train_epoch_start(self):
         """Resets the metrics at the start of every epoch."""
         self.train_f1.reset()
+        self.train_f1_weighted.reset()
         self.train_acc.reset()
 
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = nn.functional.cross_entropy(logits, y, self.class_weights)
         preds = torch.argmax(logits, dim=1)
+
+        new_class_weights = self.class_weights
+
+        if self.adaptative_loss == True and self.global_step > 0:
+            new_class_weights = self.get_adaptative_class_weights()
+
+        loss = nn.functional.cross_entropy(logits, y, new_class_weights)
 
         return {"loss": loss, "preds": preds, "y": y}
 
@@ -155,6 +179,7 @@ class CNN(pl.LightningModule):
 
         self.train_acc.update(outputs["preds"], outputs["y"])
         self.train_f1.update(outputs["preds"], outputs["y"])
+        self.train_f1_weighted.update(outputs["preds"], outputs["y"])
 
     def on_train_epoch_end(self):
         """Computes the metrics at the end of every epoch and logs it."""
@@ -166,6 +191,16 @@ class CNN(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
+
+        self.log(
+            "train_f1_weighted",
+            self.train_f1_weighted.compute(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
         f1 = self.train_f1.compute()
 
         for i in range(f1.size()[0]):
@@ -181,6 +216,7 @@ class CNN(pl.LightningModule):
     def on_validation_epoch_start(self):
         """Resets the metrics at the start of every epoch."""
         self.valid_f1.reset()
+        self.valid_f1_weighted.reset()
         self.valid_acc.reset()
 
     def validation_step(self, batch, batch_idx):
@@ -201,6 +237,7 @@ class CNN(pl.LightningModule):
         # Update metrics
         self.valid_acc.update(outputs["preds"], outputs["y"])
         self.valid_f1.update(outputs["preds"], outputs["y"])
+        self.valid_f1_weighted.update(outputs["preds"], outputs["y"])
 
     def on_validation_epoch_end(self):
         """Computes the metrics at the end of every epoch and logs it."""
@@ -208,6 +245,15 @@ class CNN(pl.LightningModule):
         self.log(
             "valid_acc",
             self.valid_acc.compute(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "valid_f1_weighted",
+            self.valid_f1_weighted.compute(),
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -230,6 +276,7 @@ class CNN(pl.LightningModule):
         """Resets the metrics at the start of every epoch."""
         self.test_acc.reset()
         self.test_f1.reset()
+        self.test_f1_weighted.reset()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -240,31 +287,44 @@ class CNN(pl.LightningModule):
         self.test_outputs["loss"] = loss
         self.test_outputs["y"].extend(y.cpu().numpy())
         self.test_outputs["preds"].extend(preds.cpu().numpy())
-
         return {"loss": loss, "preds": preds, "y": y}
 
     def on_test_batch_end(self, outputs, batch, batch_idx):
         # Update metrics
         self.test_acc.update(outputs["preds"], outputs["y"])
         self.test_f1.update(outputs["preds"], outputs["y"])
+        self.confusion_matrix.update(outputs["preds"], outputs["y"])
 
     def on_test_epoch_end(self):
         class_names = ["akiec", "bcc", "bkl", "df", "mel", "nv", "vasc"]
-        wandb.log(
-            {
-                "conf_mat": wandb.plot.confusion_matrix(
-                    probs=None,
-                    y_true=self.test_outputs["y"],
-                    preds=self.test_outputs["preds"],
-                    class_names=class_names,
-                )
-            }
-        )
+
+        # Create a Matplotlib figure
+        cm_fig, ax = plt.subplots(figsize=(8, 8))
+        # Plot the confusion matrix on the figure
+        self.confusion_matrix.plot(ax=ax)
+
+        # Save the plot as an image
+        cm_fig.savefig("confusion_matrix.png")
+
+        # Log the image with wandb
+        wandb.log({"confusion_matrix": wandb.Image("confusion_matrix.png")})
+
+        # Close the Matplotlib figure to avoid memory leaks
+        plt.close(cm_fig)
 
         """Computes metrics at the end of every epoch and logs it."""
         self.log(
             "test_acc",
             self.test_acc.compute(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "test_f1_weighted",
+            self.test_f1_weighted.compute(),
             on_step=False,
             on_epoch=True,
             prog_bar=True,
@@ -284,7 +344,33 @@ class CNN(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(
-            self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=1e-4
-        )
+        if self.optimizer == "SGD":
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.lr,
+                momentum=self.momentum,
+                weight_decay=self.weight_decay,
+            )
+
+        else:
+            optimizer = torch.optim.Adam(
+                self.parameters(),
+                lr=self.lr,
+                weight_decay=self.weight_decay,
+            )
         return optimizer
+
+    def get_adaptative_class_weights(self):
+        f1_scores = self.valid_f1.compute() + 0.1
+
+        max_f1_score = torch.max(f1_scores).item()
+
+        f1_scores_normalized = f1_scores / max_f1_score
+
+        if self.class_weights != None:
+            new_class_weights = self.class_weights / f1_scores_normalized
+            new_class_weights[new_class_weights == float("inf")] = 0
+            max_class_weight = torch.max(new_class_weights).item()
+            return new_class_weights / max_class_weight
+        else:
+            return f1_scores_normalized
