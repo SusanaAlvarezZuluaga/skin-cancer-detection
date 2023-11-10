@@ -52,6 +52,8 @@ class SkinCancerDataModule(pl.LightningDataModule):
             [
                 transforms.ToPILImage(),
                 transforms.Resize((224, 224)),
+                transforms.RandomRotation((-180, 180)),  # Image rotate
+                transforms.RandomAffine((-90, 90)),  # image translate
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
@@ -108,12 +110,12 @@ class SkinCancerDataModule(pl.LightningDataModule):
 
     def get_data_sets(self):
         df = pd.read_csv(self.labels_dir)
-        test_size = 0.30
+        test_size = 0.20
         train, test = train_test_split(df, test_size=test_size, stratify=df["dx"])
 
-        validation_proportion = 0.30
-        train, validation = train_test_split(
-            train, test_size=validation_proportion, stratify=train["dx"]
+        validation_proportion = 0.5
+        test, validation = train_test_split(
+            test, test_size=validation_proportion, stratify=test["dx"]
         )
 
         return train, validation, test

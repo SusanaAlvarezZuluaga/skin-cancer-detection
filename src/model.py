@@ -159,8 +159,17 @@ class CNN(pl.LightningModule):
 
         new_class_weights = self.class_weights
 
-        if self.adaptative_loss == True and self.global_step > 0:
+        if self.adaptative_loss == True and self.current_epoch > 0 and batch_idx == 0:
             new_class_weights = self.get_adaptative_class_weights()
+            for i in range(new_class_weights.size()[0]):
+                self.log(
+                    f"weight_class_{i}",
+                    new_class_weights[i].item(),
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=True,
+                    logger=True,
+                )
 
         loss = nn.functional.cross_entropy(logits, y, new_class_weights)
 
@@ -373,4 +382,4 @@ class CNN(pl.LightningModule):
             max_class_weight = torch.max(new_class_weights).item()
             return new_class_weights / max_class_weight
         else:
-            return f1_scores_normalized
+            return 1 / f1_scores_normalized
